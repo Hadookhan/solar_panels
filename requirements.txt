@@ -3,3 +3,5 @@ requests
 torch
 scikit-learn
 joblib
+flask
+flask-cors

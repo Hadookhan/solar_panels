@@ -1,6 +1,12 @@
 import math
 import requests
 import pandas as pd
+from pathlib import Path
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+filename = DATA_DIR / "solar_training_data.csv"
 
 
 def fetch_open_meteo_weather(location, start_date, end_date):
@@ -118,78 +124,93 @@ def estimate_panel_power(row, tilt, azimuth, capacity_kwp):
     return max(0, power_kw)
 
 
-def generate_solar_training_data(
+import csv
+import os
+
+
+def generate_solar_training_csv(
     location,
     start_date,
     end_date,
     house_id,
     inverter_kw,
     arrays,
-    tilt_range=range(0, 91, 5),
-    azimuth_range=range(0, 360, 10)
+    filename=filename,
+    tilt_range=range(0, 91, 10),
+    azimuth_range=range(0, 360, 30)
 ):
-    """
-    Generate training data for solar panel orientation.
-
-    arrays example:
-
-    arrays = [
-        {"array_id": "array1", "capacity_kwp": 4.0},
-        {"array_id": "array2", "capacity_kwp": 1.5},
-        {"array_id": "array3", "capacity_kwp": 0.75},
-    ]
-    """
-
     weather_df = fetch_open_meteo_weather(
         location,
         start_date,
         end_date
     )
 
-    rows = []
+    fieldnames = [
+        "timestamp",
+        "location",
+        "house_id",
+        "array_id",
+        "latitude",
+        "longitude",
 
-    for _, weather in weather_df.iterrows():
+        "inverter_kw",
+        "installed_capacity_kwp",
 
-        for array in arrays:
+        "temperature_2m",
+        "cloud_cover",
+        "is_day",
+        "wind_speed_10m",
+        "shortwave_radiation",
+        "direct_radiation",
+        "diffuse_radiation",
 
-            for tilt in tilt_range:
+        "panel_tilt",
+        "panel_azimuth",
+        "energy_output_kw"
+    ]
 
-                for azimuth in azimuth_range:
+    file_exists = os.path.isfile(filename)
 
-                    power_kw = estimate_panel_power(
-                        weather,
-                        tilt,
-                        azimuth,
-                        array["capacity_kwp"]
-                    )
+    with open(filename, "a", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-                    rows.append({
-                        "timestamp": weather["time"],
-                        "location": location,
-                        "house_id": house_id,
-                        "array_id": array["array_id"],
-                        "latitude": weather["latitude"],
-                        "longitude": weather["longitude"],
+        if not file_exists:
+            writer.writeheader()
 
-                        "inverter_kw": inverter_kw,
-                        "installed_capacity_kwp": array["capacity_kwp"],
+        for _, weather in weather_df.iterrows():
+            for array in arrays:
+                for tilt in tilt_range:
+                    for azimuth in azimuth_range:
 
-                        "temperature_2m": weather["temperature_2m"],
-                        "cloud_cover": weather["cloud_cover"],
-                        "is_day": weather["is_day"],
-                        "wind_speed_10m": weather["wind_speed_10m"],
-                        "shortwave_radiation": weather["shortwave_radiation"],
-                        "direct_radiation": weather["direct_radiation"],
-                        "diffuse_radiation": weather["diffuse_radiation"],
+                        power_kw = estimate_panel_power(
+                            weather,
+                            tilt,
+                            azimuth,
+                            array["capacity_kwp"]
+                        )
 
-                        "panel_tilt": tilt,
-                        "panel_azimuth": azimuth,
-                        "energy_output_kw": power_kw
-                    })
+                        writer.writerow({
+                            "timestamp": weather["time"],
+                            "location": location,
+                            "house_id": house_id,
+                            "array_id": array["array_id"],
+                            "latitude": weather["latitude"],
+                            "longitude": weather["longitude"],
 
-    return pd.DataFrame(rows)
+                            "inverter_kw": inverter_kw,
+                            "installed_capacity_kwp": array["capacity_kwp"],
 
+                            "temperature_2m": weather["temperature_2m"],
+                            "cloud_cover": weather["cloud_cover"],
+                            "is_day": weather["is_day"],
+                            "wind_speed_10m": weather["wind_speed_10m"],
+                            "shortwave_radiation": weather["shortwave_radiation"],
+                            "direct_radiation": weather["direct_radiation"],
+                            "diffuse_radiation": weather["diffuse_radiation"],
 
-def save_training_data_to_csv(df, filename="../data/solar_training_data.csv"):
-    df.to_csv(filename, index=False)
-    print(f"Saved {len(df)} rows to {filename}")
+                            "panel_tilt": tilt,
+                            "panel_azimuth": azimuth,
+                            "energy_output_kw": power_kw
+                        })
+
+    print(f"Finished writing data to {filename}")
