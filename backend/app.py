@@ -22,6 +22,38 @@ model.eval()
 
 scaler = joblib.load(SCALER_PATH)
 
+def predict_batch(candidates):
+    df = pd.DataFrame(candidates)
+    df = df[FEATURES]
+
+    X = scaler.transform(df.values)
+    X = torch.tensor(X, dtype=torch.float32)
+
+    with torch.no_grad():
+        preds = model(X).squeeze().numpy()
+
+    return preds
+
+def find_best_orientation(base_input):
+    candidates = []
+
+    for tilt in range(0, 91, 10):
+        for azimuth in range(0, 360, 30):
+            candidate = base_input.copy()
+            candidate["panel_tilt"] = tilt
+            candidate["panel_azimuth"] = azimuth
+            candidates.append(candidate)
+
+    predictions = predict_batch(candidates)
+
+    best_index = predictions.argmax()
+    best_candidate = candidates[best_index]
+
+    return {
+        "tilt": best_candidate["panel_tilt"],
+        "azimuth": best_candidate["panel_azimuth"],
+        "predicted_energy_kw": float(predictions[best_index])
+    }
 
 @app.route("/api/health", methods=["GET"])
 def health():
@@ -98,37 +130,10 @@ def best_house_orientation():
         input_data["inverter_kw"] = data["inverter_kw"]
         input_data["installed_capacity_kwp"] = array["installed_capacity_kwp"]
 
-        best_result = {
-            "array_id": array["array_id"],
-            "tilt": None,
-            "azimuth": None,
-            "predicted_energy_kw": -1
-        }
+        best = find_best_orientation(input_data)
+        best["array_id"] = array["array_id"]
 
-        for tilt in range(0, 91, 5):
-            for azimuth in range(0, 360, 10):
-                candidate = input_data.copy()
-                candidate["panel_tilt"] = tilt
-                candidate["panel_azimuth"] = azimuth
-
-                row = pd.DataFrame([candidate])
-                row = row[FEATURES]
-
-                X = scaler.transform(row.values)
-                X = torch.tensor(X, dtype=torch.float32)
-
-                with torch.no_grad():
-                    predicted_energy = model(X).item()
-
-                if predicted_energy > best_result["predicted_energy_kw"]:
-                    best_result = {
-                        "array_id": array["array_id"],
-                        "tilt": tilt,
-                        "azimuth": azimuth,
-                        "predicted_energy_kw": predicted_energy
-                    }
-
-        results.append(best_result)
+        results.append(best)
 
     return jsonify({
         "house_id": data.get("house_id"),
